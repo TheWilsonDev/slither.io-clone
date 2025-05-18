@@ -53,8 +53,12 @@ Game.prototype = {
     this.game.camera.follow(this.playerSnake.head);
 
     //create bots
-    new BotSnake(this.game, "circle", -200, 0);
-    new BotSnake(this.game, "circle", 200, 0);
+    // new BotSnake(this.game, "circle", -200, 0);
+    // new BotSnake(this.game, "circle", 200, 0);
+
+    // Group for other players' sprites
+    this.otherPlayersGroup = this.game.add.group();
+    this.otherPlayerSprites = {}; // To store references to other player sprites by ID
 
     //initialize snake groups and collision
     for (var i = 0; i < this.game.snakes.length; i++) {
@@ -81,6 +85,51 @@ Game.prototype = {
       var c = this.coinGroup.children[i];
       if (c && c.coin) {
         c.coin.update();
+      }
+    }
+
+    // Update other players' sprites
+    if (window.otherPlayers && this.otherPlayersGroup) {
+      // Create/Update sprites for current otherPlayers
+      for (const playerId in window.otherPlayers) {
+        const playerData = window.otherPlayers[playerId];
+        let sprite = this.otherPlayerSprites[playerId];
+
+        if (!sprite) {
+          // Create new sprite for this player
+          sprite = this.otherPlayersGroup.create(playerData.x, playerData.y, "circle");
+          sprite.anchor.setTo(0.5);
+          // Convert hex color string (e.g., "#FF0000") to a number (e.g., 0xFF0000)
+          if (playerData.color && typeof playerData.color === "string") {
+            try {
+              sprite.tint = parseInt(playerData.color.replace("#", ""), 16);
+            } catch (e) {
+              console.warn("Could not parse color for player:", playerData.color, e);
+              sprite.tint = 0xffffff; // Default to white on error
+            }
+          } else {
+            sprite.tint = 0xffffff; // Default to white if no color
+          }
+          this.otherPlayerSprites[playerId] = sprite;
+          console.log("Created sprite for other player:", playerId, "at", playerData.x, playerData.y);
+        } else {
+          // Update existing sprite position
+          sprite.x = playerData.x;
+          sprite.y = playerData.y;
+          // Optionally update tint if color can change dynamically
+          // if (playerData.color && typeof playerData.color === 'string') {
+          //   try { sprite.tint = parseInt(playerData.color.replace("#", ""), 16); } catch (e) {}
+          // }
+        }
+      }
+
+      // Remove sprites for disconnected players
+      for (const playerId in this.otherPlayerSprites) {
+        if (!window.otherPlayers[playerId]) {
+          console.log("Destroying sprite for disconnected player:", playerId);
+          this.otherPlayerSprites[playerId].destroy();
+          delete this.otherPlayerSprites[playerId];
+        }
       }
     }
   },

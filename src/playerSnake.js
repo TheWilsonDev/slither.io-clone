@@ -26,6 +26,10 @@ PlayerSnake = function (game, spriteKey, x, y) {
 PlayerSnake.prototype = Object.create(Snake.prototype);
 PlayerSnake.prototype.constructor = PlayerSnake;
 
+// Counter for throttling movement updates
+PlayerSnake.prototype.movementUpdateCounter = 0;
+PlayerSnake.prototype.MOVEMENT_UPDATE_THRESHOLD = 5; // Send update every 5 frames
+
 //make this snake light up and speed up when the space key is down
 PlayerSnake.prototype.spaceKeyDown = function () {
   this.speed = this.fastSpeed;
@@ -49,6 +53,21 @@ PlayerSnake.prototype.update = function () {
   var mousePosY = this.game.input.activePointer.worldY;
   var headX = this.head.body.x;
   var headY = this.head.body.y;
+
+  // Emit movement update periodically
+  this.movementUpdateCounter++;
+  if (this.movementUpdateCounter >= this.MOVEMENT_UPDATE_THRESHOLD) {
+    this.movementUpdateCounter = 0;
+    if (window.socket && window.socket.connected) {
+      window.socket.emit("playerMovement", {
+        id: window.socket.id, // The current player's socket ID
+        x: headX,
+        y: headY,
+        // We might also want to send angle or full body parts later
+      });
+    }
+  }
+
   var angle = (180 * Math.atan2(mousePosX - headX, mousePosY - headY)) / Math.PI;
   if (angle > 0) {
     angle = 180 - angle;

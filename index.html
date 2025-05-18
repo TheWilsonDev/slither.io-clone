@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Slither.io Clone - Loonride Example</title>
+    <script src="/socket.io/socket.io.js"></script>
     <script src="lib/phaser.min.js"></script>
     <script src="src/game.js"></script>
     <script src="src/snake.js"></script>
@@ -102,6 +103,74 @@
           game.scale.setGameSize(window.innerWidth, window.innerHeight);
         });
       })();
+    </script>
+    <script>
+      const socket = io("http://localhost:3000");
+      window.socket = socket; // Make socket global
+
+      socket.on("connect", () => {
+        console.log("Successfully connected to Socket.IO server!", socket.id);
+      });
+
+      socket.on("connect_error", (error) => {
+        console.error("Failed to connect to Socket.IO server:", error);
+      });
+
+      socket.on("disconnect", () => {
+        console.log("Disconnected from Socket.IO server.");
+      });
+
+      const otherPlayers = {}; // To store data of other players
+      window.otherPlayers = otherPlayers; // Make otherPlayers global
+
+      // Listen for current players when this client connects
+      socket.on("currentPlayers", (players) => {
+        console.log("Current players:", players);
+        for (const id in players) {
+          if (players[id].id !== socket.id) {
+            // Don't add self
+            otherPlayers[id] = players[id];
+            console.log("Added existing player to local store:", players[id]);
+          }
+        }
+        // Later, we'll iterate through otherPlayers and render them
+      });
+
+      // Listen for new players joining
+      socket.on("newPlayer", (playerInfo) => {
+        console.log("New player joined:", playerInfo);
+        if (playerInfo.id !== socket.id) {
+          // Don't add self if server somehow sends it
+          otherPlayers[playerInfo.id] = playerInfo;
+          console.log("Added new player to local store:", playerInfo);
+          // Later, we'll render this new player
+        }
+      });
+
+      // Listen for players disconnecting
+      socket.on("playerDisconnected", (playerId) => {
+        console.log("Player disconnected:", playerId);
+        if (otherPlayers[playerId]) {
+          delete otherPlayers[playerId];
+          console.log("Removed player from local store:", playerId);
+          // Later, we'll remove this player's snake
+        }
+      });
+
+      // Listen for movement updates from other players
+      socket.on("playerMoved", (playerData) => {
+        if (otherPlayers[playerData.id]) {
+          otherPlayers[playerData.id].x = playerData.x;
+          otherPlayers[playerData.id].y = playerData.y;
+          // We would update other properties like angle here later
+          // console.log("Player moved (client):", playerData.id, "New Pos:", playerData.x, playerData.y);
+          // Later, we will update the visual representation of this player
+        } else {
+          // This might happen if a playerMoved event arrives before newPlayer for some reason
+          // Or if it's for self, though server broadcast should prevent that.
+          console.warn("Received playerMoved for unknown or self player:", playerData.id);
+        }
+      });
     </script>
   </body>
 </html>
