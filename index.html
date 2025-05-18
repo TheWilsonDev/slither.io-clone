@@ -15,8 +15,82 @@
     <script src="src/food.js"></script>
     <script src="src/coin.js"></script>
     <script src="src/util.js"></script>
+    <style>
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translate(-50%, -50%) scale(0.9);
+        }
+        to {
+          opacity: 1;
+          transform: translate(-50%, -50%) scale(1);
+        }
+      }
+
+      #death-popup {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.85);
+        color: white;
+        padding: 30px 40px;
+        border-radius: 15px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5), 0 0 40px rgba(255, 0, 0, 0.3);
+        text-align: center;
+        z-index: 1000;
+        font-family: "Arial", sans-serif;
+        animation: fadeIn 0.3s ease-out;
+        min-width: 300px;
+      }
+
+      #death-popup h2 {
+        margin-top: 0;
+        font-size: 28px;
+        color: #ff5555;
+        text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+      }
+
+      #death-popup p {
+        margin: 15px 0;
+        font-size: 18px;
+      }
+
+      #respawn-button {
+        background: linear-gradient(to bottom, #4da6ff, #0066cc);
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        margin-top: 15px;
+        font-size: 18px;
+        font-weight: bold;
+        border-radius: 30px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+      }
+
+      #respawn-button:hover {
+        background: linear-gradient(to bottom, #66b3ff, #0080ff);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+      }
+
+      #respawn-button:active {
+        transform: translateY(1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+      }
+    </style>
   </head>
   <body style="margin: 0; overflow: hidden">
+    <div id="death-popup">
+      <h2>Game Over!</h2>
+      <p>Your snake has been defeated</p>
+      <p id="death-stats">Length: 0<br />Survived: 0 seconds</p>
+      <button id="respawn-button">Respawn</button>
+    </div>
+    <div id="game"></div>
     <script>
       (function () {
         var game = new Phaser.Game(window.innerWidth, window.innerHeight, Phaser.AUTO, null);

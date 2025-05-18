@@ -49,7 +49,8 @@ Game.prototype = {
 
     //create player
     var snake = new PlayerSnake(this.game, "circle", 0, 0);
-    this.game.camera.follow(snake.head);
+    this.playerSnake = snake; // Store a reference to the player's snake
+    this.game.camera.follow(this.playerSnake.head);
 
     //create bots
     new BotSnake(this.game, "circle", -200, 0);
@@ -113,6 +114,111 @@ Game.prototype = {
     //place coins where snake was destroyed
     for (var i = 0; i < snake.headPath.length; i += Math.round(snake.headPath.length / snake.snakeLength) * 2) {
       this.initCoin(snake.headPath[i].x + Util.randomInt(-10, 10), snake.headPath[i].y + Util.randomInt(-10, 10));
+    }
+
+    if (snake instanceof PlayerSnake) {
+      // If the player's snake is destroyed, show the death popup with stats
+      this.showDeathPopup(snake);
+    }
+  },
+
+  showDeathPopup: function (snake) {
+    var popup = document.getElementById("death-popup");
+    var respawnButton = document.getElementById("respawn-button");
+    var statsMessage = document.getElementById("death-stats");
+
+    if (popup && respawnButton && statsMessage) {
+      // Update stats message with snake information
+      if (snake) {
+        var snakeLength = Math.round(snake.snakeLength);
+        var survivalTime = Math.round((this.game.time.now - snake.creationTime) / 1000);
+        statsMessage.innerHTML = "Length: " + snakeLength + "<br>Survived: " + survivalTime + " seconds";
+      } else {
+        statsMessage.innerHTML = "Better luck next time!";
+      }
+
+      // Set opacity to 0 first to ensure animation works correctly
+      popup.style.opacity = "0";
+      popup.style.display = "block";
+
+      // Trigger reflow to ensure CSS animation plays properly
+      void popup.offsetWidth;
+
+      // Reset opacity to allow animation to play
+      popup.style.opacity = "1";
+
+      // Remove any existing event listener to prevent duplicates
+      var newRespawnButton = respawnButton.cloneNode(true);
+      respawnButton.parentNode.replaceChild(newRespawnButton, respawnButton);
+      newRespawnButton.addEventListener("click", this.respawnPlayer.bind(this));
+    } else {
+      console.error("Death popup, respawn button, or stats element not found in HTML.");
+    }
+  },
+
+  respawnPlayer: function () {
+    var popup = document.getElementById("death-popup");
+    if (popup) {
+      // Add fade out animation
+      popup.style.opacity = "0";
+      popup.style.transform = "translate(-50%, -50%) scale(0.9)";
+
+      // Hide the popup after animation completes
+      setTimeout(function () {
+        popup.style.display = "none";
+        // Reset transform for next time
+        popup.style.transform = "translate(-50%, -50%) scale(1)";
+      }, 300);
+    }
+
+    // The old playerSnake instance is destroyed by its own 'destroy' method,
+    // which is called via the collision or boundary checks.
+    // The 'destroy' method also handles removing itself from 'this.game.snakes'.
+
+    // Create a new player snake at the center
+    // The PlayerSnake constructor (which calls Snake constructor) will add it to this.game.snakes
+    this.playerSnake = new PlayerSnake(this.game, "circle", 0, 0);
+
+    // Ensure camera follows the new player snake's head
+    this.game.camera.follow(this.playerSnake.head);
+
+    // Re-apply collision settings and destroyed callback for the new player snake
+    // This is similar to the setup in Game.create
+    if (this.playerSnake && this.playerSnake.head && this.playerSnake.head.body) {
+      this.playerSnake.head.body.setCollisionGroup(this.snakeHeadCollisionGroup);
+      // From Game.create: snake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
+      // Also need to consider collisions with other snakes' sections.
+      // The original Snake constructor in snake.js sets up:
+      // sec.body.setCollisionGroup(this.collisionGroup);
+      // sec.body.collides([]);
+      // this.edge.body.setCollisionGroup(this.game.physics.p2.createCollisionGroup()); // This is specific to edge
+      // this.edge.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]); // This is edge, not head.
+
+      // Let's check what Game.create does for the snake's *head* specifically regarding collisions.
+      // In Game.create:
+      // snake.head.body.setCollisionGroup(this.snakeHeadCollisionGroup);
+      // snake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
+      // It also adds: snake.addDestroyedCallback(this.snakeDestroyed, this);
+
+      // For head-on-head or head-on-body collisions, these are handled by `edgeContact` in Snake.js
+      // The `edge` sprite has its own collision group and setup in Snake.js
+      // The `sections` of the snake also have their own collision group (this.collisionGroup in Snake.js)
+      // and `collides([])` by default, meaning they don't initiate collision callbacks but can be hit.
+
+      // So, for the player's head, we primarily care about collisions with food and coins.
+      this.playerSnake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
+
+      // Add the game's snakeDestroyed callback to the new player snake instance
+      this.playerSnake.addDestroyedCallback(this.snakeDestroyed, this);
+
+      // Ensure the new snake is part of the main snake array if not already handled by constructor
+      // (Snake constructor already adds 'this' to this.game.snakes)
+      // However, we should ensure it's correctly managed if an old one was removed.
+      // Since Snake.destroy removes it from this.game.snakes, and Snake constructor adds it, this should be fine.
+
+      console.log("Player has respawned at (0,0).");
+    } else {
+      console.error("Failed to create or access new playerSnake for respawn.");
     }
   },
 };
