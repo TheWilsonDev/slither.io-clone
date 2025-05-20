@@ -3,18 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Slither.io Clone - Loonride Example</title>
+    <title>Slither.io Multiplayer</title>
     <script src="lib/phaser.min.js"></script>
-    <script src="src/game.js"></script>
-    <script src="src/snake.js"></script>
-    <script src="src/playerSnake.js"></script>
-    <script src="src/botSnake.js"></script>
+    <script src="src/util.js"></script>
+    <script src="src/networkManager.js"></script>
     <script src="src/eye.js"></script>
     <script src="src/eyePair.js"></script>
     <script src="src/shadow.js"></script>
     <script src="src/food.js"></script>
     <script src="src/coin.js"></script>
-    <script src="src/util.js"></script>
+    <script src="src/snake.js"></script>
+    <script src="src/playerSnake.js"></script>
+    <script src="src/game.js"></script>
     <style>
       @keyframes fadeIn {
         from {
@@ -81,26 +81,69 @@
         transform: translateY(1px);
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
       }
+
+      #players-count {
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        background-color: rgba(0, 0, 0, 0.5);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 5px;
+        font-family: "Arial", sans-serif;
+        font-size: 14px;
+        z-index: 100;
+      }
+
+      /* Set background color for body */
+      body {
+        background-color: #333;
+      }
     </style>
   </head>
-  <body style="margin: 0; overflow: hidden">
+  <body>
     <div id="death-popup">
       <h2>Game Over!</h2>
       <p>Your snake has been defeated</p>
       <p id="death-stats">Length: 0<br />Survived: 0 seconds</p>
       <button id="respawn-button">Respawn</button>
     </div>
+    <div id="players-count">Players: 1</div>
     <div id="game"></div>
     <script>
       (function () {
-        var game = new Phaser.Game(window.innerWidth, window.innerHeight, Phaser.AUTO, null);
+        var game = new Phaser.Game(window.innerWidth, window.innerHeight, Phaser.AUTO, "game");
 
         game.state.add("Game", Game);
         game.state.start("Game");
 
+        // Safe window resize handler
         window.addEventListener("resize", function () {
-          game.scale.setGameSize(window.innerWidth, window.innerHeight);
+          if (game && game.scale && typeof game.scale.setGameSize === "function") {
+            game.scale.setGameSize(window.innerWidth, window.innerHeight);
+          }
         });
+
+        // Update player count display
+        function updatePlayerCount() {
+          try {
+            var gameInstance = game.state.states.Game;
+            if (gameInstance && gameInstance.networkManager) {
+              var playerCount = 1; // Count yourself
+
+              if (gameInstance.networkManager.remoteSnakes) {
+                playerCount += gameInstance.networkManager.remoteSnakes.size;
+              }
+
+              document.getElementById("players-count").innerText = "Players: " + playerCount;
+            }
+          } catch (e) {
+            console.error("Error updating player count:", e);
+          }
+        }
+
+        // Update player count every second
+        setInterval(updatePlayerCount, 1000);
       })();
     </script>
   </body>

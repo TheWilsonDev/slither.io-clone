@@ -1,52 +1,81 @@
 /**
- * Coin that snakes eat - dropped when a snake dies.
- * @param  {Phaser.Game} game game object
- * @param  {Number} x    coordinate
- * @param  {Number} y    coordinate
+ * Coin that snake eats
+ * @param  {Phaser.Game} game  game object
+ * @param  {Number} x     x-coordinate
+ * @param  {Number} y     y-coordinate
+ * @param  {Number} id    optional network ID for multiplayer
  */
-Coin = function (game, x, y) {
+Coin = function (game, x, y, id) {
   this.game = game;
   this.debug = false;
-  this.sprite = this.game.add.sprite(x, y, "coin");
-  this.sprite.scale.setTo(0.05); // Initial scale for the coin
+  this.sprite = game.add.sprite(x, y, "coin");
+  this.sprite.coin = this;
+  this.id = id;
 
-  this.game.physics.p2.enable(this.sprite, this.debug);
-  this.sprite.body.clearShapes();
-  // Assuming coin.png is circular, adjust if it's not
-  // If it's square, you might use addRectangle instead or adjust width/height for circle
-  this.sprite.body.addCircle(this.sprite.width * 0.5);
+  // Enable physics
+  game.physics.p2.enable(this.sprite, this.debug);
+  this.sprite.body.setCircle(this.sprite.width / 2);
 
-  //set callback for when something hits the coin
-  this.sprite.body.onBeginContact.add(this.onBeginContact, this);
+  // Set random scale (between 0.5 and 0.75)
+  this.scale = 0.5 + Math.random() * 0.25;
+  this.sprite.scale.setTo(this.scale);
 
-  this.sprite.coin = this; // Reference to this Coin object from the sprite
+  // Set collision groups
+  this.sprite.body.setCollisionGroup(game.physics.p2.createCollisionGroup());
+
+  // Only set up collisions with snakes if there are any
+  if (this.game.snakes && this.game.snakes.length > 0) {
+    for (var i = 0; i < this.game.snakes.length; i++) {
+      if (this.game.snakes[i] && this.game.snakes[i].snakeHeadCollisionGroup) {
+        this.sprite.body.collides([this.game.snakes[i].collisionGroup, this.game.snakes[i].snakeHeadCollisionGroup], this.snakeEat, this);
+      }
+    }
+  }
+
+  // Flicker effect for the coin
+  this.flickerRate = 200 + Math.random() * 200;
+  this.flickerTimer = 0;
 };
 
 Coin.prototype = {
-  onBeginContact: function (phaserBody, p2Body) {
-    // Check if the colliding body is a snake head
-    if (phaserBody && phaserBody.sprite.name == "head") {
-      phaserBody.sprite.snake.incrementSize(); // Or some other effect like score
+  /**
+   * Called when snake eats coin
+   * @param  {Phaser.Sprite} coinBody   coin sprite
+   * @param  {Phaser.Sprite} snakeBody  snake sprite
+   */
+  snakeEat: function (coinBody, snakeBody) {
+    // In multiplayer, only process collision on server
+    // Client should only display coins
+    if (this.game.networkManager && this.game.networkManager.connected) {
+      return; // Coin collisions are handled by server
+    }
+
+    if (snakeBody && snakeBody.sprite && snakeBody.sprite.snake) {
+      var snake = snakeBody.sprite.snake;
+      // Add more length for coins compared to food
+      for (var i = 0; i < 3; i++) {
+        snake.incrementSize();
+      }
+
+      // Destroy coin
       this.destroy();
     }
   },
-
   /**
-   * Call from main update loop (not strictly necessary for static coins)
+   * Update coin animation
    */
   update: function () {
-    // Coins are static, so no update logic needed unless they have animations or other behaviors.
+    // Flicker effect
+    this.flickerTimer += this.game.time.elapsed;
+    if (this.flickerTimer > this.flickerRate) {
+      this.flickerTimer = 0;
+      this.sprite.alpha = this.sprite.alpha === 1 ? 0.7 : 1;
+    }
   },
-
   /**
    * Destroy this coin
    */
   destroy: function () {
-    if (this.sprite) {
-      // Remove from coinGroup in game.js if necessary, though Phaser might handle this
-      // Example: if (this.game.coinGroup.contains(this.sprite)) { this.game.coinGroup.remove(this.sprite); }
-      this.sprite.destroy();
-      this.sprite = null; // Clear reference
-    }
+    this.sprite.destroy();
   },
 };

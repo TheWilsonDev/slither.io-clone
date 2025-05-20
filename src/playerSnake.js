@@ -21,6 +21,24 @@ PlayerSnake = function (game, spriteKey, x, y) {
     spaceKey.onDown.remove(this.spaceKeyDown, this);
     spaceKey.onUp.remove(this.spaceKeyUp, this);
   }, this);
+
+  // In network mode, send an initial direction update
+  if (this.game.networkManager && this.game.networkManager.connected) {
+    // Send initial direction (use a random one to start)
+    this.game.networkManager.sendDirection(Math.random() * Math.PI * 2);
+
+    // Also do a "ping" immediately and every few seconds to prevent timeout
+    this.sendNetworkPing();
+    this.pingInterval = setInterval(this.sendNetworkPing.bind(this), 10000);
+
+    // Clear interval on destroy
+    this.addDestroyedCallback(function () {
+      if (this.pingInterval) {
+        clearInterval(this.pingInterval);
+        this.pingInterval = null;
+      }
+    }, this);
+  }
 };
 
 PlayerSnake.prototype = Object.create(Snake.prototype);
@@ -30,11 +48,21 @@ PlayerSnake.prototype.constructor = PlayerSnake;
 PlayerSnake.prototype.spaceKeyDown = function () {
   this.speed = this.fastSpeed;
   this.shadow.isLightingUp = true;
+
+  // Send boost state to server in multiplayer mode
+  if (this.game.networkManager && this.game.networkManager.connected) {
+    this.game.networkManager.sendBoost(true);
+  }
 };
 //make the snake slow down when the space key is up again
 PlayerSnake.prototype.spaceKeyUp = function () {
   this.speed = this.slowSpeed;
   this.shadow.isLightingUp = false;
+
+  // Send boost state to server in multiplayer mode
+  if (this.game.networkManager && this.game.networkManager.connected) {
+    this.game.networkManager.sendBoost(false);
+  }
 };
 
 /**
@@ -43,6 +71,15 @@ PlayerSnake.prototype.spaceKeyUp = function () {
  */
 PlayerSnake.prototype.tempUpdate = PlayerSnake.prototype.update;
 PlayerSnake.prototype.update = function () {
+  // In multiplayer mode, the server determines the position
+  // We only send input and apply client-side prediction
+  if (this.game.networkManager && this.game.networkManager.connected) {
+    // Call the original snake update method for rendering
+    this.tempUpdate();
+    return;
+  }
+
+  // Single player mode - direct control
   //find the angle that the head needs to rotate
   //through in order to face the mouse
   var mousePosX = this.game.input.activePointer.worldX;
@@ -73,4 +110,20 @@ PlayerSnake.prototype.update = function () {
 
   //call the original snake update method
   this.tempUpdate();
+};
+
+/**
+ * Send a ping to the server to prevent timeout
+ */
+PlayerSnake.prototype.sendNetworkPing = function () {
+  if (this.game.networkManager && this.game.networkManager.connected) {
+    // Send current direction as a ping
+    var mousePosX = this.game.input.activePointer.worldX;
+    var mousePosY = this.game.input.activePointer.worldY;
+    var headX = this.head.body.x;
+    var headY = this.head.body.y;
+    var angle = Math.atan2(mousePosX - headX, mousePosY - headY);
+
+    this.game.networkManager.sendDirection(angle);
+  }
 };

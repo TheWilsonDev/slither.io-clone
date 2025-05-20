@@ -1,67 +1,74 @@
 /**
- * Food that snakes eat - it is pulled towards the center of a snake head after
- * it is first touched
- * @param  {Phaser.Game} game game object
- * @param  {Number} x    coordinate
- * @param  {Number} y    coordinate
+ * Food object with physics/collisions
+ * @param  {Phaser.Game} game  game object
+ * @param  {Number} x     x-coordinate
+ * @param  {Number} y     y-coordinate
+ * @param  {Number} id    optional network ID for multiplayer
  */
-Food = function (game, x, y) {
+Food = function (game, x, y, id) {
   this.game = game;
   this.debug = false;
-  this.sprite = this.game.add.sprite(x, y, "food");
-  this.sprite.scale.setTo(0.9);
-
-  // Generate a random bright, saturated color
-  var h = Math.random(); // Random hue (0 to 1)
-  var s = 1; // Maximum saturation
-  var l = 0.6; // Brightness (0.5 is good, 0.6 is a bit brighter)
-  var rgbColor = Phaser.Color.HSLtoRGB(h, s, l);
-  this.sprite.tint = Phaser.Color.getColor(rgbColor.r, rgbColor.g, rgbColor.b);
-
-  this.game.physics.p2.enable(this.sprite, this.debug);
-  this.sprite.body.clearShapes();
-  this.sprite.body.addCircle(this.sprite.width * 0.5);
-  //set callback for when something hits the food
-  this.sprite.body.onBeginContact.add(this.onBeginContact, this);
-
+  this.sprite = game.add.sprite(x, y, "food");
   this.sprite.food = this;
+  this.id = id;
 
-  this.head = null;
-  this.constraint = null;
+  // Enable physics
+  game.physics.p2.enable(this.sprite, this.debug);
+  this.sprite.body.setCircle(this.sprite.width / 2);
+  this.sprite.scale.setTo(0.5);
+
+  // Set collision groups
+  this.sprite.body.setCollisionGroup(game.physics.p2.createCollisionGroup());
+
+  // Only set up collisions with snakes if there are any
+  if (this.game.snakes && this.game.snakes.length > 0) {
+    for (var i = 0; i < this.game.snakes.length; i++) {
+      if (this.game.snakes[i] && this.game.snakes[i].snakeHeadCollisionGroup) {
+        this.sprite.body.collides([this.game.snakes[i].collisionGroup, this.game.snakes[i].snakeHeadCollisionGroup], this.snakeEat, this);
+      }
+    }
+  }
 };
 
 Food.prototype = {
-  onBeginContact: function (phaserBody, p2Body) {
-    if (phaserBody && phaserBody.sprite.name == "head" && this.constraint === null) {
-      this.sprite.body.collides([]);
-      //Create constraint between the food and the snake head that
-      //it collided with. The food is then brought to the center of
-      //the head sprite
-      this.constraint = this.game.physics.p2.createRevoluteConstraint(this.sprite.body, [0, 0], phaserBody, [0, 0]);
-      this.head = phaserBody.sprite;
-      this.head.snake.food.push(this);
+  /**
+   * Called when snake eats food
+   * @param  {Phaser.Sprite} foodBody  food sprite
+   * @param  {Phaser.Sprite} snakeBody snake sprite
+   */
+  snakeEat: function (foodBody, snakeBody) {
+    // In multiplayer, only process collision on server
+    // Client should only display food
+    if (this.game.networkManager && this.game.networkManager.connected) {
+      return; // Food collisions are handled by server
+    }
+
+    if (snakeBody && snakeBody.sprite && snakeBody.sprite.snake) {
+      var snake = snakeBody.sprite.snake;
+      // Add length to snake
+      snake.incrementSize();
+
+      // Destroy food
+      this.destroy();
+
+      // Respawn food (only in single player mode)
+      if (!this.game.networkManager) {
+        var width = this.game.width;
+        var height = this.game.height;
+        this.game.initFood(Util.randomInt(-width, width), Util.randomInt(-height, height));
+      }
     }
   },
   /**
-   * Call from main update loop
+   * Update physics
    */
   update: function () {
-    //once the food reaches the center of the snake head, destroy it and
-    //increment the size of the snake
-    if (this.head && Math.round(this.head.body.x) == Math.round(this.sprite.body.x) && Math.round(this.head.body.y) == Math.round(this.sprite.body.y)) {
-      this.head.snake.incrementSize();
-      this.destroy();
-    }
+    // No movement in this example
   },
   /**
-   * Destroy this food and its constraints
+   * Destroy this food
    */
   destroy: function () {
-    if (this.head) {
-      this.game.physics.p2.removeConstraint(this.constraint);
-      this.sprite.destroy();
-      this.head.snake.food.splice(this.head.snake.food.indexOf(this), 1);
-      this.head = null;
-    }
+    this.sprite.destroy();
   },
 };

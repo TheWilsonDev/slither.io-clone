@@ -1,8 +1,10 @@
-Game = function (game) {};
+Game = function (game) {
+  this.networkManager = null;
+};
 
 Game.prototype = {
   preload: function () {
-    //load assets
+    // Load assets
     this.game.load.image("circle", "asset/circle.png");
     this.game.load.image("shadow", "asset/white-shadow.png");
     this.game.load.image("background", "asset/tile.png");
@@ -13,25 +15,29 @@ Game.prototype = {
     this.game.load.image("food", "asset/food.png");
     this.game.load.image("coin", "asset/coin.png");
   },
+
   create: function () {
     var width = this.game.width;
     var height = this.game.height;
 
+    // Default world size for single player mode
+    // In multiplayer, this will be updated based on server settings
     this.game.world.setBounds(-width * 3, -height * 3, width * 6, height * 6);
     this.game.stage.backgroundColor = "#444";
 
-    //add tilesprite background
+    // Add tilesprite background
     var background = this.game.add.tileSprite(-width * 3, -height * 3, this.game.world.width, this.game.world.height, "background");
 
-    // Add circular world border
+    // Add circular world border (placeholder - will be updated in multiplayer)
     var worldRadius = Math.min(this.game.world.width, this.game.world.height) / 2;
-    this.game.worldRadius = worldRadius; // Store worldRadius on the game object
+    this.game.worldRadius = worldRadius;
     var borderGraphics = this.game.add.graphics(0, 0);
-    borderGraphics.lineStyle(10, 0x0000ff, 1); // 10px thick, blue, 100% alpha
-    borderGraphics.drawCircle(this.game.world.centerX, this.game.world.centerY, worldRadius * 2); // Phaser's drawCircle takes diameter
+    borderGraphics.lineStyle(10, 0x0000ff, 1);
+    borderGraphics.drawCircle(this.game.world.centerX, this.game.world.centerY, worldRadius * 2);
     this.game.world.add(borderGraphics);
+    this.borderGraphics = borderGraphics;
 
-    //initialize physics and groups
+    // Initialize physics and groups
     this.game.physics.startSystem(Phaser.Physics.P2JS);
     this.foodGroup = this.game.add.group();
     this.coinGroup = this.game.add.group();
@@ -40,80 +46,256 @@ Game.prototype = {
     this.coinCollisionGroup = this.game.physics.p2.createCollisionGroup();
     this.game.renderer.renderSession.roundPixels = true;
 
-    //add food randomly
+    // Initialize empty snake array
+    this.game.snakes = [];
+
+    // Create NetworkManager for multiplayer
+    this.networkManager = new NetworkManager(this);
+
+    // Event handler for when network connection is established and initial state received
+    this.onNetworkReady = this.handleNetworkReady.bind(this);
+
+    // Event handler for when disconnected from server
+    this.onDisconnected = this.handleDisconnect.bind(this);
+
+    // Connect to server for multiplayer
+    this.networkManager.connect();
+
+    // Show loading message
+    this.loadingText = this.game.add.text(this.game.world.centerX, this.game.world.centerY, "Connecting to server...", { font: "32px Arial", fill: "#ffffff" });
+    this.loadingText.anchor.setTo(0.5);
+    this.loadingText.fixedToCamera = true;
+
+    // In multiplayer mode we'll create the player snake after connection
+    // In single player mode, initialize food and player immediately
+    if (!this.networkManager.connected) {
+      console.log("Single player mode detected");
+      // Wait a moment just in case connection happens quickly
+      setTimeout(() => {
+        if (!this.networkManager.connected) {
+          this.initSinglePlayerMode();
+        }
+      }, 1000);
+    }
+  },
+
+  /**
+   * Initialize single player mode with local food and player
+   */
+  initSinglePlayerMode: function () {
+    if (this.loadingText) {
+      this.loadingText.destroy();
+      this.loadingText = null;
+    }
+
+    var width = this.game.width;
+    var height = this.game.height;
+
+    console.log("Initializing single player mode");
+
+    // Add food randomly
     for (var i = 0; i < 100; i++) {
       this.initFood(Util.randomInt(-width * 3, width * 3), Util.randomInt(-height * 3, height * 3));
     }
 
-    this.game.snakes = [];
+    // Create player snake
+    this.createPlayerSnake(0, 0);
+  },
 
-    //create player
-    var snake = new PlayerSnake(this.game, "circle", 0, 0);
-    this.playerSnake = snake; // Store a reference to the player's snake
-    this.game.camera.follow(this.playerSnake.head);
+  /**
+   * Handle when network connection is ready and initial state received
+   */
+  handleNetworkReady: function (playerId) {
+    try {
+      console.log("Network ready, creating player snake with ID:", playerId);
 
-    //create bots
-    new BotSnake(this.game, "circle", -200, 0);
-    new BotSnake(this.game, "circle", 200, 0);
+      // Remove loading text if it exists
+      if (this.loadingText) {
+        this.loadingText.destroy();
+        this.loadingText = null;
+      }
 
-    //initialize snake groups and collision
-    for (var i = 0; i < this.game.snakes.length; i++) {
-      var snake = this.game.snakes[i];
-      snake.head.body.setCollisionGroup(this.snakeHeadCollisionGroup);
-      snake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
-      //callback for when a snake is destroyed
-      snake.addDestroyedCallback(this.snakeDestroyed, this);
+      // Make sure we don't create a duplicate player
+      if (this.playerSnake) {
+        console.log("Player snake already exists, not creating a new one");
+        return;
+      }
+
+      // Create player snake based on server-assigned position
+      this.createPlayerSnake(0, 0);
+
+      // Give the player a chance to get acclimated before game starts
+      setTimeout(() => {
+        console.log("Multiplayer game started!");
+      }, 1000);
+    } catch (e) {
+      console.error("Error handling network ready:", e);
     }
   },
+
+  /**
+   * Handle disconnection from server
+   */
+  handleDisconnect: function () {
+    console.log("Disconnected from server");
+
+    // Show disconnection message or handle gracefully
+    alert("Disconnected from server. Refresh to reconnect.");
+  },
+
+  /**
+   * Create player snake and set up camera
+   */
+  createPlayerSnake: function (x, y) {
+    try {
+      // Create player snake
+      var snake = new PlayerSnake(this.game, "circle", x, y);
+
+      // Make sure the snake was created successfully
+      if (!snake || !snake.head) {
+        console.error("Failed to create player snake");
+        return;
+      }
+
+      this.playerSnake = snake;
+
+      // Set up camera to follow snake
+      if (this.game.camera) {
+        this.game.camera.follow(this.playerSnake.head);
+      }
+
+      // Initialize snake collision groups
+      if (snake.head && snake.head.body) {
+        snake.head.body.setCollisionGroup(this.snakeHeadCollisionGroup);
+        snake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
+
+        // Callback for when snake is destroyed
+        snake.addDestroyedCallback(this.snakeDestroyed, this);
+
+        console.log("Player snake created successfully");
+      } else {
+        console.error("Player snake created but head is missing or invalid");
+      }
+    } catch (e) {
+      console.error("Error creating player snake:", e);
+    }
+  },
+
   /**
    * Main update loop
    */
   update: function () {
-    //update game components
-    for (var i = this.game.snakes.length - 1; i >= 0; i--) {
-      this.game.snakes[i].update();
+    // Update network manager (handle incoming data, interpolation, etc.)
+    if (this.networkManager) {
+      this.networkManager.update();
     }
-    for (var i = this.foodGroup.children.length - 1; i >= 0; i--) {
-      var f = this.foodGroup.children[i];
-      f.food.update();
+
+    // Update player's snake direction based on cursor position
+    if (this.playerSnake && !this.playerSnake.isBeingDestroyed && this.networkManager && this.networkManager.connected) {
+      try {
+        // Calculate angle from head to mouse position
+        var mousePosX = this.game.input.activePointer.worldX;
+        var mousePosY = this.game.input.activePointer.worldY;
+        var headX = this.playerSnake.head.body.x;
+        var headY = this.playerSnake.head.body.y;
+        var angle = Math.atan2(mousePosX - headX, mousePosY - headY);
+
+        // Send direction update to server
+        this.networkManager.sendDirection(angle);
+      } catch (e) {
+        console.error("Error updating player direction:", e);
+      }
     }
-    for (var i = this.coinGroup.children.length - 1; i >= 0; i--) {
-      var c = this.coinGroup.children[i];
-      if (c && c.coin) {
-        c.coin.update();
+
+    // Update game components
+    if (this.game.snakes) {
+      for (var i = this.game.snakes.length - 1; i >= 0; i--) {
+        if (this.game.snakes[i]) {
+          this.game.snakes[i].update();
+        }
+      }
+    }
+
+    if (this.foodGroup && this.foodGroup.children) {
+      for (var i = this.foodGroup.children.length - 1; i >= 0; i--) {
+        var f = this.foodGroup.children[i];
+        if (f && f.food) {
+          f.food.update();
+        }
+      }
+    }
+
+    if (this.coinGroup && this.coinGroup.children) {
+      for (var i = this.coinGroup.children.length - 1; i >= 0; i--) {
+        var c = this.coinGroup.children[i];
+        if (c && c.coin) {
+          c.coin.update();
+        }
       }
     }
   },
+
   /**
    * Create a piece of food at a point
    * @param  {number} x x-coordinate
    * @param  {number} y y-coordinate
+   * @param  {number} id     optional network ID
    * @return {Food}   food object created
    */
-  initFood: function (x, y) {
-    var f = new Food(this.game, x, y);
-    f.sprite.body.setCollisionGroup(this.foodCollisionGroup);
-    this.foodGroup.add(f.sprite);
-    f.sprite.body.collides([this.snakeHeadCollisionGroup]);
-    return f;
+  initFood: function (x, y, id) {
+    try {
+      var f = new Food(this.game, x, y, id);
+      f.sprite.body.setCollisionGroup(this.foodCollisionGroup);
+      this.foodGroup.add(f.sprite);
+
+      // Only set up collisions if we have snakes
+      if (this.game.snakes && this.game.snakes.length > 0) {
+        f.sprite.body.collides([this.snakeHeadCollisionGroup]);
+      }
+
+      return f;
+    } catch (e) {
+      console.error("Error creating food:", e);
+      return null;
+    }
   },
+
   /**
    * Create a piece of coin at a point
    * @param  {number} x x-coordinate
    * @param  {number} y y-coordinate
+   * @param  {number} id     optional network ID
    * @return {Coin}   coin object created
    */
-  initCoin: function (x, y) {
-    var c = new Coin(this.game, x, y);
-    c.sprite.body.setCollisionGroup(this.coinCollisionGroup);
-    this.coinGroup.add(c.sprite);
-    c.sprite.body.collides([this.snakeHeadCollisionGroup]);
-    return c;
+  initCoin: function (x, y, id) {
+    try {
+      var c = new Coin(this.game, x, y, id);
+      c.sprite.body.setCollisionGroup(this.coinCollisionGroup);
+      this.coinGroup.add(c.sprite);
+
+      // Only set up collisions if we have snakes
+      if (this.game.snakes && this.game.snakes.length > 0) {
+        c.sprite.body.collides([this.snakeHeadCollisionGroup]);
+      }
+
+      return c;
+    } catch (e) {
+      console.error("Error creating coin:", e);
+      return null;
+    }
   },
+
+  /**
+   * Handle snake destruction
+   * @param  {Snake} snake destroyed snake
+   */
   snakeDestroyed: function (snake) {
-    //place coins where snake was destroyed
-    for (var i = 0; i < snake.headPath.length; i += Math.round(snake.headPath.length / snake.snakeLength) * 2) {
-      this.initCoin(snake.headPath[i].x + Util.randomInt(-10, 10), snake.headPath[i].y + Util.randomInt(-10, 10));
+    // In networked mode, coins are spawned by the server
+    if (!this.networkManager || !this.networkManager.connected) {
+      // Place coins where snake was destroyed (single-player mode only)
+      for (var i = 0; i < snake.headPath.length; i += Math.round(snake.headPath.length / snake.snakeLength) * 2) {
+        this.initCoin(snake.headPath[i].x + Util.randomInt(-10, 10), snake.headPath[i].y + Util.randomInt(-10, 10));
+      }
     }
 
     if (snake instanceof PlayerSnake) {
@@ -122,6 +304,10 @@ Game.prototype = {
     }
   },
 
+  /**
+   * Show death popup with stats
+   * @param  {PlayerSnake} snake destroyed player snake
+   */
   showDeathPopup: function (snake) {
     var popup = document.getElementById("death-popup");
     var respawnButton = document.getElementById("respawn-button");
@@ -156,6 +342,9 @@ Game.prototype = {
     }
   },
 
+  /**
+   * Respawn player after death
+   */
   respawnPlayer: function () {
     var popup = document.getElementById("death-popup");
     if (popup) {
@@ -171,50 +360,21 @@ Game.prototype = {
       }, 300);
     }
 
-    // The old playerSnake instance is destroyed by its own 'destroy' method,
-    // which is called via the collision or boundary checks.
-    // The 'destroy' method also handles removing itself from 'this.game.snakes'.
+    // In networked mode, we just create a new connection to the server
+    if (this.networkManager && this.networkManager.connected) {
+      window.location.reload(); // Simple way to reconnect to the server
+      return;
+    }
 
-    // Create a new player snake at the center
-    // The PlayerSnake constructor (which calls Snake constructor) will add it to this.game.snakes
+    // Single player mode respawn
     this.playerSnake = new PlayerSnake(this.game, "circle", 0, 0);
-
-    // Ensure camera follows the new player snake's head
     this.game.camera.follow(this.playerSnake.head);
 
-    // Re-apply collision settings and destroyed callback for the new player snake
-    // This is similar to the setup in Game.create
+    // Re-apply collision settings and destroyed callback
     if (this.playerSnake && this.playerSnake.head && this.playerSnake.head.body) {
       this.playerSnake.head.body.setCollisionGroup(this.snakeHeadCollisionGroup);
-      // From Game.create: snake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
-      // Also need to consider collisions with other snakes' sections.
-      // The original Snake constructor in snake.js sets up:
-      // sec.body.setCollisionGroup(this.collisionGroup);
-      // sec.body.collides([]);
-      // this.edge.body.setCollisionGroup(this.game.physics.p2.createCollisionGroup()); // This is specific to edge
-      // this.edge.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]); // This is edge, not head.
-
-      // Let's check what Game.create does for the snake's *head* specifically regarding collisions.
-      // In Game.create:
-      // snake.head.body.setCollisionGroup(this.snakeHeadCollisionGroup);
-      // snake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
-      // It also adds: snake.addDestroyedCallback(this.snakeDestroyed, this);
-
-      // For head-on-head or head-on-body collisions, these are handled by `edgeContact` in Snake.js
-      // The `edge` sprite has its own collision group and setup in Snake.js
-      // The `sections` of the snake also have their own collision group (this.collisionGroup in Snake.js)
-      // and `collides([])` by default, meaning they don't initiate collision callbacks but can be hit.
-
-      // So, for the player's head, we primarily care about collisions with food and coins.
       this.playerSnake.head.body.collides([this.foodCollisionGroup, this.coinCollisionGroup]);
-
-      // Add the game's snakeDestroyed callback to the new player snake instance
       this.playerSnake.addDestroyedCallback(this.snakeDestroyed, this);
-
-      // Ensure the new snake is part of the main snake array if not already handled by constructor
-      // (Snake constructor already adds 'this' to this.game.snakes)
-      // However, we should ensure it's correctly managed if an old one was removed.
-      // Since Snake.destroy removes it from this.game.snakes, and Snake constructor adds it, this should be fine.
 
       console.log("Player has respawned at (0,0).");
     } else {
